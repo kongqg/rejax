@@ -11,6 +11,12 @@ import wandb
 
 
 def main(algo_str, config, seed_id, num_seeds, time_fit):
+    wandb.init(
+        project="rejax-kongqg",
+        config=config,
+        name=f"{config.ppo.env}_{config.ppo.tau}",
+        group=config.ppo.env,  #
+    )
     algo_cls = get_algo(algo_str)
     algo = algo_cls.create(**config)
     print(algo.config)
