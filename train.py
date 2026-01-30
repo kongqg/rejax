@@ -6,6 +6,8 @@ import yaml
 from matplotlib import pyplot as plt
 
 from rejax import get_algo
+from src.rejax.evaluate import evaluate_grid
+import wandb
 
 
 def main(algo_str, config, seed_id, num_seeds, time_fit):
@@ -14,15 +16,32 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     print(algo.config)
 
     old_eval_callback = algo.eval_callback
-
+    eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
+    eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
     def eval_callback(algo, ts, rng):
-        lengths, returns = old_eval_callback(algo, ts, rng)
-        jax.debug.print(
-            "Step {}, Mean episode length: {}, Mean return: {}",
-            ts.global_step,
-            lengths.mean(),
-            returns.mean(),
+        act = algo.make_act(ts)
+        lengths, returns = evaluate_grid(
+            act,
+            rng,
+            algo.env,
+            algo.env_params,
+            eval_taus,
+            eval_seeds,
+            algo.env_params.max_steps_in_episode
         )
+        # 按照tau的值 取mean
+        mean_returns_per_tau = returns.mean(axis=1)
+        jax.debug.print(
+            "Step {}: Mean returns for taus {} are {}",
+            ts.global_step,
+            eval_taus,
+            mean_returns_per_tau
+        )
+        if wandb.run is not None:
+            metrics = {"global_step": ts.global_step}
+            for i, tau in enumerate(eval_taus):
+                metrics[f"eval/return_tau_{tau:.2f}"] = mean_returns_per_tau[i]
+            wandb.log(metrics)
         return lengths, returns
 
     algo = algo.replace(eval_callback=eval_callback)

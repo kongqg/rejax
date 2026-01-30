@@ -23,6 +23,7 @@ def evaluate_single(
     env_params,
     rng,
     max_steps_in_episode,
+    tau,
 ):
     def step(state):
         rng, rng_act, rng_step = jax.random.split(state.rng, 3)
@@ -52,10 +53,29 @@ def evaluate_single(
     )
     return state.length, state.return_
 
+@partial(jax.jit, static_argnames=("act", "env"))
+def evaluate_grid(
+    act: Callable,
+    rng: chex.PRNGKey,
+    env: environment.Environment,
+    env_params: Any,
+    taus: chex.Array,    # 传入 tau 的数组
+    seeds: chex.Array,   # 传入特定的 seeds 数组 (如 111~888)
+    max_steps_in_episode: int | None = None,
+) -> tuple[chex.Array, chex.Array]:
+    if max_steps_in_episode is None:
+        max_steps_in_episode = env_params.max_steps_in_episode
+
+    def eval_over_seeds(tau):
+        vmap_seeds = jax.vmap(evaluate_single, in_axes=(None, None, None, 0, None, None))
+        return vmap_seeds(act, env, env_params, seeds, max_steps_in_episode, tau)
+
+    return jax.vmap(eval_over_seeds)(taus)
+
 
 @partial(jax.jit, static_argnames=("act", "env", "num_seeds"))
 def evaluate(
-    act: Callable[[chex.Array, chex.PRNGKey], chex.Array],
+    act: Callable,
     rng: chex.PRNGKey,
     env: environment.Environment,
     env_params: Any,
@@ -81,5 +101,5 @@ def evaluate(
         max_steps_in_episode = env_params.max_steps_in_episode
 
     seeds = jax.random.split(rng, num_seeds)
-    vmap_collect = jax.vmap(evaluate_single, in_axes=(None, None, None, 0, None))
-    return vmap_collect(act, env, env_params, seeds, max_steps_in_episode)
+    vmap_collect = jax.vmap(evaluate_single, in_axes=(None, None, None, 0, None, None))
+    return vmap_collect(act, env, env_params, seeds, max_steps_in_episode, 0.0)

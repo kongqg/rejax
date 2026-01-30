@@ -40,7 +40,7 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
     clip_eps: chex.Scalar = struct.field(pytree_node=True, default=0.2)
     vf_coef: chex.Scalar = struct.field(pytree_node=True, default=0.5)
     ent_coef: chex.Scalar = struct.field(pytree_node=True, default=0.01)
-    tau: chex.Scalar = struct.field(pytree_node=True, default=0.6)
+
     def make_act(self, ts):
         def act(obs, rng):
             if getattr(self, "normalize_observations", False):
@@ -97,7 +97,7 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
 
         last_val = self.critic.apply(ts.critic_ts.params, ts.last_obs)
         last_val = jnp.where(ts.last_done, 0, last_val)
-        advantages, targets = self.calculate_expectile_gae(trajectories, last_val)
+        advantages, targets = self.calculate_gae(trajectories, last_val)
 
         def update_epoch(ts, unused):
             rng, minibatch_rng = jax.random.split(ts.rng)
@@ -187,50 +187,6 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
         )
         return advantages, advantages + trajectories.value
 
-    def calculate_expectile_gae(self, trajectories, last_val):
-        v_all = trajectories.value
-        v_old = v_all # V_t     [T-1,B]
-        v_tp1 = jnp.concatenate(v_all[1:], last_val)  # V_{t+1} [T-1,B]
-        last_value = last_val  # V_T     [B]
-
-        r = trajectories.reward  # r_t [T,B]
-
-        d = (1.0 - trajectories.done) # [T,B]
-
-        def step(G_next, xs):
-            r_t, d_t, v_tp1_t = xs  # each [B]
-            u = G_next - v_tp1_t
-            pos = jnp.maximum(u, 0.0)  # (u)_+
-            neg = jnp.maximum(-u, 0.0)  # (u)_-
-            lam = self.gae_lambda / self.tau
-            soft = v_tp1_t + lam * (self.tau * pos - (1.0 - self.tau) * neg)
-            G_t = r_t + self.discount * d_t * soft
-            return G_t, G_t
-
-        _, G_rev = jax.lax.scan(
-            step,
-            last_value,
-            (r[::-1], d[::-1], v_tp1[::-1]),
-        )
-
-        returns = G_rev[::-1]  # [T,B]
-        adv = jax.lax.stop_gradient(returns - v_old)
-        return adv, returns
-
-    def expectile_actor_loss_helper(self, adv):
-        tau = self.tau
-        weight = jnp.where(adv > 0, 2.0 * tau, 2.0 * (1.0 - tau))
-        return weight
-
-    def expectile_value_loss_helper(self, target, value, value_clipped):
-        tau = self.tau
-        delta1 = target - value
-        delta2 = target - value_clipped
-
-        w1 = jnp.where(delta1 > 0, 2.0 * tau, 2.0 * (1.0 - tau))
-        w2 = jnp.where(delta2 > 0, 2.0 * tau, 2.0 * (1.0 - tau))
-
-        return w1, w2
     def update_actor(self, ts, batch):
         def actor_loss_fn(params):
             log_prob, entropy = self.actor.apply(
@@ -243,19 +199,13 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
 
             # Calculate actor loss
             ratio = jnp.exp(log_prob - batch.trajectories.log_prob)
-            # advantages = (batch.advantages - batch.advantages.mean()) / (
-            #     batch.advantages.std() + 1e-8
-            # )
-
-            # without norm
-            advantages = batch.advantages
-
-            # correct tau
-            weight = self.expectile_actor_loss_helper(advantages)
+            advantages = (batch.advantages - batch.advantages.mean()) / (
+                batch.advantages.std() + 1e-8
+            )
             clipped_ratio = jnp.clip(ratio, 1 - self.clip_eps, 1 + self.clip_eps)
             pi_loss1 = ratio * advantages
             pi_loss2 = clipped_ratio * advantages
-            pi_loss = -jnp.minimum(weight * pi_loss1, weight * pi_loss2).mean()
+            pi_loss = -jnp.minimum(pi_loss1, pi_loss2).mean()
             return pi_loss - self.ent_coef * entropy
 
         grads = jax.grad(actor_loss_fn)(ts.actor_ts.params)
@@ -267,12 +217,9 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
             value_pred_clipped = batch.trajectories.value + (
                 value - batch.trajectories.value
             ).clip(-self.clip_eps, self.clip_eps)
-
-            # expectile tau
-            w1, w2 = self.expectile_value_loss_helper(batch.targets, value, value_pred_clipped)
             value_losses = jnp.square(value - batch.targets)
             value_losses_clipped = jnp.square(value_pred_clipped - batch.targets)
-            value_loss = 0.5 * jnp.maximum(w1 * value_losses, w2 * value_losses_clipped).mean()
+            value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
             return self.vf_coef * value_loss
 
         grads = jax.grad(critic_loss_fn)(ts.critic_ts.params)
