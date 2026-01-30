@@ -243,12 +243,12 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
 
             # Calculate actor loss
             ratio = jnp.exp(log_prob - batch.trajectories.log_prob)
-            # advantages = (batch.advantages - batch.advantages.mean()) / (
-            #     batch.advantages.std() + 1e-8
-            # )
+            advantages = (batch.advantages - batch.advantages.mean()) / (
+                batch.advantages.std() + 1e-8
+            )
 
             # without norm
-            advantages = batch.advantages
+            # advantages = batch.advantages
 
             # correct tau
             weight = self.expectile_actor_loss_helper(advantages)

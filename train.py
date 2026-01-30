@@ -13,8 +13,8 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     wandb.init(
         project="rejax-kongqg",
         config=config,
-        name=f"{config.ppo.env}_{config.ppo.tau}",
-        group=config.ppo.env,  #
+        name = f"{config['env']}",
+        group=config['env'],  #
     )
     eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
     eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
