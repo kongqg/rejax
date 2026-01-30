@@ -6,7 +6,6 @@ import yaml
 from matplotlib import pyplot as plt
 
 from rejax import get_algo
-from src.rejax.evaluate import evaluate_grid
 import wandb
 
 
@@ -17,55 +16,58 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         name=f"{config.ppo.env}_{config.ppo.tau}",
         group=config.ppo.env,  #
     )
+    eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
+    eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
+    num_taus = len(eval_taus)
+    num_seeds_per_tau = len(eval_seeds)
+
     algo_cls = get_algo(algo_str)
     algo = algo_cls.create(**config)
     print(algo.config)
 
-    old_eval_callback = algo.eval_callback
-    eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
-    eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
-    def eval_callback(algo, ts, rng):
-        lengths, returns = old_eval_callback(algo, ts, rng)
-        jax.debug.print(
-            "Step {}, Mean episode length: {}, Mean return: {}",
-            ts.global_step,
-            lengths.mean(),
-            returns.mean(),
+
+    def wandb_avg_callback(algo, ts, rng):
+        lengths, returns = algo.eval_callback(algo, ts, rng)
+        avg_lengths = lengths.mean(axis=1)
+        avg_returns = returns.mean(axis=1)
+
+        def log_to_wandb(step, lengths_arr, returns_arr):
+            log_dict = {}
+            for i, tau_val in enumerate(eval_taus):
+                suffix = f"tau_{tau_val:.1f}"
+                log_dict[f"return/{suffix}"] = returns_arr[i].item()
+                log_dict[f"length/{suffix}"] = lengths_arr[i].item()
+
+            wandb.log(log_dict, step=int(step[0]))  # 取第一个 seed 的 step 即可
+
+        jax.experimental.io_callback(
+            log_to_wandb,
+            None,
+            ts.global_step[:, 0],  # 传入每个 tau 第一个 seed 的 step
+            avg_lengths,
+            avg_returns
         )
-        return lengths, returns
+        return ()
 
-    algo = algo.replace(eval_callback=eval_callback)
+    base_config = config.copy()
+    algo = algo_cls.create(**base_config)
+    algo = algo.replace(eval_callback=wandb_avg_callback)
 
-    # Train it
+    def train_with_tau(tau, keys):
+        curr_algo = algo.replace(tau=tau)
+        return jax.vmap(algo_cls.train, in_axes=(None, 0))(curr_algo, keys)
+    final_vmap_train = jax.jit(jax.vmap(train_with_tau, in_axes=(0, 0)))
+
     key = jax.random.PRNGKey(seed_id)
-    keys = jax.random.split(key, num_seeds)
+    subkeys = jax.random.split(key, num_taus * num_seeds_per_tau)
+    subkeys = subkeys.reshape(num_taus, num_seeds_per_tau, -1)
 
-    vmap_train = jax.jit(jax.vmap(algo_cls.train, in_axes=(None, 0)))
-    ts, (_, returns) = vmap_train(algo, keys)
-    returns.block_until_ready()
+    print(f"Starting training for {num_taus} taus with {num_seeds_per_tau} seeds each...")
+    ts, (all_lengths, all_returns) = final_vmap_train(eval_taus, subkeys)
+    all_returns.block_until_ready()
 
-    print(f"Achieved mean return of {returns.mean(axis=-1)[:, -1]}")
-
-    t = jnp.arange(returns.shape[1]) * algo.eval_freq
-    colors = plt.cm.cool(jnp.linspace(0, 1, num_seeds))
-    for i in range(num_seeds):
-        plt.plot(t, returns.mean(axis=-1)[i], c=colors[i])
-    plt.show()
-
-    if time_fit:
-        print("Fitting 3 times, getting a mean time of... ", end="", flush=True)
-
-        def time_fn():
-            return vmap_train(algo, keys)
-
-        time = timeit.timeit(time_fn, number=3) / 3
-        print(
-            f"{time:.1f} seconds total, equalling to "
-            f"{time / num_seeds:.1f} seconds per seed"
-        )
-
-    # Move local variables to global scope for debugging (run with -i)
-    globals().update(locals())
+    print("Training finished.")
+    wandb.finish()
 
 
 if __name__ == "__main__":
