@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import yaml
 from matplotlib import pyplot as plt
 
-from rejax import get_algo
+from rejax.algos.get_highway import get_algo
 import wandb
 
 
@@ -53,7 +53,6 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
 
             log_dict = {}
 
-            # ✅ 关键：兼容标量 / 向量
             if np.ndim(mean_returns) == 0:
                 suffix = f"tau_{tau_now:.1f}"
                 log_dict[f"return/{suffix}"] = float(mean_returns)
@@ -74,7 +73,7 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
             log_to_wandb,
             None,
             ts.global_step,
-            algo.tau,  # ✅ 新增：把当前 tau 传进去
+            algo.tau,
             avg_lengths,
             avg_returns
         )

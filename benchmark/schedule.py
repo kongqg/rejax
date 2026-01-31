@@ -26,7 +26,7 @@ conda activate jax
 export WANDB__SERVICE_WAIT=300
 export WANDB_API_KEY={wandb_key}
 
-python train.py \
+python train_highway.py \
     --config {config} \
     --algorithm {algorithm} \
     --num-seeds {num_seeds} \
