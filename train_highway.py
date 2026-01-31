@@ -55,16 +55,16 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
 
             if np.ndim(mean_returns) == 0:
                 suffix = f"tau_{tau_now:.1f}"
-                log_dict[f"return/{suffix}"] = float(mean_returns)
+                log_dict[f"eval/{suffix}"] = float(mean_returns)
                 log_dict[f"length/{suffix}"] = float(mean_lengths)
             elif mean_returns.shape[0] == len(eval_taus):
                 for i, tau_val in enumerate(eval_taus):
                     suffix = f"tau_{tau_val:.1f}"
-                    log_dict[f"return/{suffix}"] = float(mean_returns[i])
+                    log_dict[f"eval/{suffix}"] = float(mean_returns[i])
                     log_dict[f"length/{suffix}"] = float(mean_lengths[i])
             else:
                 # 兜底：不符合预期形状就记录一个平均
-                log_dict["return/avg"] = float(np.mean(mean_returns))
+                log_dict["eval/avg"] = float(np.mean(mean_returns))
                 log_dict["length/avg"] = float(np.mean(mean_lengths))
 
             wandb.log(log_dict, step=global_step)
