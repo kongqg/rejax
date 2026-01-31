@@ -26,7 +26,7 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     algo = algo_cls.create(**base_config)
     original_eval_callback = algo.eval_callback
     def wandb_avg_callback(algo, ts, rng):
-        lengths, returns = algo.eval_callback(algo, ts, rng)
+        lengths, returns = original_eval_callback(algo, ts, rng)
         avg_lengths = lengths.mean(axis=1)
         avg_returns = returns.mean(axis=1)
 
