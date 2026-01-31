@@ -21,6 +21,10 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     num_taus = len(eval_taus)
     num_seeds_per_tau = len(eval_seeds)
 
+    algo_cls = get_algo(algo_str)
+    base_config = config.copy()
+    algo = algo_cls.create(**base_config)
+    original_eval_callback = algo.eval_callback
     def wandb_avg_callback(algo, ts, rng):
         lengths, returns = algo.eval_callback(algo, ts, rng)
         avg_lengths = lengths.mean(axis=1)
@@ -44,9 +48,7 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         )
         return ()
 
-    algo_cls = get_algo(algo_str)
-    base_config = config.copy()
-    algo = algo_cls.create(**base_config)
+    algo = algo.replace(eval_callback=wandb_avg_callback)
     print(algo.config)
 
     def train_with_tau(tau, keys):
