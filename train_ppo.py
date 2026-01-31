@@ -42,7 +42,7 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
             wandb.log({
                 "eval/mean_returns": float(mean_return),
                 "eval/mean_episode_lengths": float(mean_step_length)
-            }, step=int(step[0]))  # 使用第一个 seed 的 step 作为步数
+            }, step=int(step))  # 使用第一个 seed 的 step 作为步数
 
         # 4. 使用 io_callback 触发日志记录
         jax.experimental.io_callback(
