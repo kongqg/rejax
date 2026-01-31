@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import yaml
 from matplotlib import pyplot as plt
 
-from src.rejax import get_algo
+from rejax import get_algo
 import wandb
 
 
