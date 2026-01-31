@@ -16,5 +16,4 @@ torch
 tyro
 wandb
 numpy
-rejax
 navix

@@ -190,7 +190,7 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
     def calculate_expectile_gae(self, trajectories, last_val):
         v_all = trajectories.value
         v_old = v_all # V_t     [T-1,B]
-        v_tp1 = jnp.concatenate(v_all[1:], last_val)  # V_{t+1} [T-1,B]
+        v_tp1 = jnp.concatenate([v_all[1:], last_val[None, :]], axis=0)  # V_{t+1} [T-1,B]
         last_value = last_val  # V_T     [B]
 
         r = trajectories.reward  # r_t [T,B]
@@ -204,7 +204,7 @@ class PPO(OnPolicyMixin, NormalizeObservationsMixin, NormalizeRewardsMixin, Algo
             neg = jnp.maximum(-u, 0.0)  # (u)_-
             lam = self.gae_lambda / self.tau
             soft = v_tp1_t + lam * (self.tau * pos - (1.0 - self.tau) * neg)
-            G_t = r_t + self.discount * d_t * soft
+            G_t = r_t + self.gamma * d_t * soft
             return G_t, G_t
 
         _, G_rev = jax.lax.scan(
