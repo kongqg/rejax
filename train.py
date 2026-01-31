@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import yaml
 from matplotlib import pyplot as plt
 
-from rejax import get_algo
+from src.rejax import get_algo
 import wandb
 
 
@@ -20,11 +20,6 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
     num_taus = len(eval_taus)
     num_seeds_per_tau = len(eval_seeds)
-
-    algo_cls = get_algo(algo_str)
-    algo = algo_cls.create(**config)
-    print(algo.config)
-
 
     def wandb_avg_callback(algo, ts, rng):
         lengths, returns = algo.eval_callback(algo, ts, rng)
@@ -49,9 +44,10 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         )
         return ()
 
+    algo_cls = get_algo(algo_str)
     base_config = config.copy()
     algo = algo_cls.create(**base_config)
-    algo = algo.replace(eval_callback=wandb_avg_callback)
+    print(algo.config)
 
     def train_with_tau(tau, keys):
         curr_algo = algo.replace(tau=tau)
