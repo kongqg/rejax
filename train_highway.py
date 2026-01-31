@@ -125,19 +125,12 @@ if __name__ == "__main__":
         default=1,
         help="Number of seeds to roll out.",
     )
-    parser.add_argument(
-        "--algo",
-        type=str,
-        default="dhvl",
-        help="algo",
-    )
 
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
         config = yaml.safe_load(f.read())[args.algorithm]
 
-    config["algo"] = args.algo
 
     main(
         args.algorithm,
