@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 
 from rejax.get_highway import get_algo
 import wandb
+import time
 
 
 def main(algo_str, config, seed_id, num_seeds, time_fit):
@@ -29,11 +30,24 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     subkeys = jax.random.split(key, num_taus * eval_seeds_count)
     subkeys = subkeys.reshape(num_taus, eval_seeds_count, -1)
 
-    # 4. 执行极速向量化训练
+
     print(f"Starting training for {num_taus} taus with {eval_seeds_count} seeds each...")
+    start_time = time.time()
     ts, (all_lengths, all_returns) = final_vmap_train(eval_taus, subkeys)
     all_returns.block_until_ready()
+    end_time = time.time()
+
+    duration = end_time - start_time
+    total_seeds = num_seeds
+
+    print("-" * 30)
+    print(f"训练总耗时: {duration:.2f} 秒")
+    print(f"总 Seed 数量 (num_taus * num_seeds): {total_seeds}")
+    print("-" * 30)
+
+
     print("Training finished.")
+
 
     import numpy as np
     returns_np = np.array(all_returns)  # 形状: (num_taus, num_seeds, num_steps, num_envs)
@@ -47,7 +61,7 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
                 config={**config, "tau": tau_float, "algo_type": "highway"},
                 name=f"{config['env']}-tau-{tau_float:.1f}",
                 group=config['env'],
-                reinit=True 
+                reinit=True
         ):
             avg_returns_history = returns_np[i].mean(axis=(0, 2))
 
