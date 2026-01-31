@@ -1,4 +1,5 @@
-from rejax.algos import DQN, IQN, PPO, PQN, SAC, TD3, Algorithm
+from rejax.algos import DQN, IQN, PQN, SAC, TD3, Algorithm
+from rejax.algos.ppo_origin import PPO
 
 
 _algos = {

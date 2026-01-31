@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import yaml
 from matplotlib import pyplot as plt
 
-from rejax.algos.get_highway import get_algo
+from rejax.get_highway import get_algo
 import wandb
 
 
