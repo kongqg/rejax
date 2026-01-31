@@ -27,22 +27,24 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     original_eval_callback = algo.eval_callback
     def wandb_avg_callback(algo, ts, rng):
         lengths, returns = original_eval_callback(algo, ts, rng)
-        avg_lengths = lengths.mean(axis=1)
-        avg_returns = returns.mean(axis=1)
+        avg_lengths = lengths.mean()
+        avg_returns = returns.mean()
 
-        def log_to_wandb(step, lengths_arr, returns_arr):
+        def log_to_wandb(step, lengths_matrix, returns_matrix):
+            mean_lengths = lengths_matrix.mean(axis=1)
+            mean_returns = returns_matrix.mean(axis=1)
             log_dict = {}
             for i, tau_val in enumerate(eval_taus):
                 suffix = f"tau_{tau_val:.1f}"
-                log_dict[f"return/{suffix}"] = returns_arr[i].item()
-                log_dict[f"length/{suffix}"] = lengths_arr[i].item()
+                log_dict[f"return/{suffix}"] = mean_returns[i].item()
+                log_dict[f"length/{suffix}"] = mean_lengths[i].item()
 
-            wandb.log(log_dict, step=int(step[0]))  # 取第一个 seed 的 step 即可
+            wandb.log(log_dict, step=int(step[0, 0]))  # 取第一个 seed 的 step 即可
 
         jax.experimental.io_callback(
             log_to_wandb,
             None,
-            ts.global_step[:, 0],  # 传入每个 tau 第一个 seed 的 step
+            ts.global_step,
             avg_lengths,
             avg_returns
         )
