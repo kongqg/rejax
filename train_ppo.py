@@ -14,56 +14,26 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         project="rejax-kongqg",
         config=config,
         name=f"{config['env']}",
-        group=config['env'],  #
+        group=config['env']
     )
     algo_cls = get_algo(algo_str)
     algo = algo_cls.create(**config)
     print(algo.config)
 
-    old_eval_callback = algo.eval_callback
-    eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
-    train_num_seeds = len(eval_seeds)
-
-    def eval_callback(algo, ts, rng):
-        # 1. (128,)
-        lengths, returns = old_eval_callback(algo, ts, rng)
-
-        # 2.
-        avg_lengths = lengths.mean()
-        avg_returns = returns.mean()
-
-        # 3.
-        def log_to_wandb(step, l_arr, r_arr):
-            import numpy as np
-            mean_step_length = np.mean(l_arr)
-            mean_return = np.mean(r_arr)
-
-            # 记录到 wandb
-            wandb.log({
-                "eval/mean_returns": float(mean_return),
-                "eval/mean_episode_lengths": float(mean_step_length)
-            }, step=int(step))  # 使用第一个 seed 的 step 作为步数
-
-        # 4. 使用 io_callback 触发日志记录
-        jax.experimental.io_callback(
-            log_to_wandb,
-            None,
-            ts.global_step,  # 传入当前训练步数
-            avg_lengths,  # 传入 (num_seeds,) 形状的长度数组
-            avg_returns  # 传入 (num_seeds,) 形状的奖励数组
-        )
-
-        return lengths, returns
-
-    algo = algo.replace(eval_callback=eval_callback)
-
-    # Train it
     key = jax.random.PRNGKey(seed_id)
-    keys = jax.random.split(key, train_num_seeds)
+    keys = jax.random.split(key, num_seeds)
 
     vmap_train = jax.jit(jax.vmap(algo_cls.train, in_axes=(None, 0)))
     ts, (_, returns) = vmap_train(algo, keys)
     returns.block_until_ready()
+
+    import numpy as np
+    returns_np = np.array(returns)
+    avg_returns_history = returns_np.mean(axis=(0, 2))
+
+    for i, val in enumerate(avg_returns_history):
+        current_step = i * algo.eval_freq
+        wandb.log({"eval/mean_returns": float(val)}, step=int(current_step))
 
     print(f"Achieved mean return of {returns.mean(axis=-1)[:, -1]}")
 
@@ -75,17 +45,12 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
 
     if time_fit:
         print("Fitting 3 times, getting a mean time of... ", end="", flush=True)
-
         def time_fn():
             return vmap_train(algo, keys)
-
         time = timeit.timeit(time_fn, number=3) / 3
-        print(
-            f"{time:.1f} seconds total, equalling to "
-            f"{time / num_seeds:.1f} seconds per seed"
-        )
+        print(f"{time:.1f} seconds total, equalling to {time / num_seeds:.1f} seconds per seed")
 
-    # Move local variables to global scope for debugging (run with -i)
+    wandb.finish()
     globals().update(locals())
 
 

@@ -17,9 +17,8 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         group=config['env'],  #
     )
     eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
-    eval_seeds = jnp.array([111, 222, 333, 444, 555, 666, 777, 888])
     num_taus = len(eval_taus)
-    num_seeds_per_tau = len(eval_seeds)
+    num_seeds_per_tau = 8
 
     algo_cls = get_algo(algo_str)
     base_config = config.copy()
@@ -43,11 +42,9 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
                 r_mat = returns_arr.reshape(num_taus, num_seeds_per_tau)
                 s_mat = step_arr.reshape(num_taus, num_seeds_per_tau)
 
-                mean_lengths = l_mat.mean(axis=1)
                 mean_returns = r_mat.mean(axis=1)
                 global_step = int(s_mat[0, 0])
             except ValueError:
-                mean_lengths = lengths_arr
                 mean_returns = returns_arr
                 global_step = int(step_arr.flat[0])
 
@@ -56,16 +53,13 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
             if np.ndim(mean_returns) == 0:
                 suffix = f"tau_{tau_now:.1f}"
                 log_dict[f"eval/{suffix}"] = float(mean_returns)
-                log_dict[f"length/{suffix}"] = float(mean_lengths)
             elif mean_returns.shape[0] == len(eval_taus):
                 for i, tau_val in enumerate(eval_taus):
                     suffix = f"tau_{tau_val:.1f}"
                     log_dict[f"eval/{suffix}"] = float(mean_returns[i])
-                    log_dict[f"length/{suffix}"] = float(mean_lengths[i])
             else:
                 # 兜底：不符合预期形状就记录一个平均
                 log_dict["eval/avg"] = float(np.mean(mean_returns))
-                log_dict["length/avg"] = float(np.mean(mean_lengths))
 
             wandb.log(log_dict, step=global_step)
 
@@ -131,11 +125,19 @@ if __name__ == "__main__":
         default=1,
         help="Number of seeds to roll out.",
     )
+    parser.add_argument(
+        "--algo",
+        type=str,
+        default="dhvl",
+        help="algo",
+    )
 
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
         config = yaml.safe_load(f.read())[args.algorithm]
+
+    config["algo"] = args.algo
 
     main(
         args.algorithm,
