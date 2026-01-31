@@ -12,7 +12,7 @@ import wandb
 def main(algo_str, config, seed_id, num_seeds, time_fit):
     wandb.init(
         project="rejax-kongqg",
-        config=config,
+        config={**config, "algo_type": "ppo"},
         name=f"{config['env']}",
         group=config['env']
     )

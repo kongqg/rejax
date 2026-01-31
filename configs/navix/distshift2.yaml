@@ -16,7 +16,6 @@ sac:
   normalize_observations: true
 
 ppo:
-  algo: "ppo"
   env: navix/Navix-DistShift2-v0
   agent_kwargs:
     activation: swish

@@ -10,87 +10,52 @@ import wandb
 
 
 def main(algo_str, config, seed_id, num_seeds, time_fit):
-    wandb.init(
-        project="rejax-kongqg",
-        config=config,
-        name = f"{config['env']}",
-        group=config['env'],  #
-    )
     eval_taus = jnp.array([0.6, 0.7, 0.8, 0.9])
+    eval_seeds_count = num_seeds
     num_taus = len(eval_taus)
-    num_seeds_per_tau = 8
 
     algo_cls = get_algo(algo_str)
-    base_config = config.copy()
-    algo = algo_cls.create(**base_config)
-    original_eval_callback = algo.eval_callback
+    algo = algo_cls.create(**config)
 
-    def wandb_avg_callback(algo, ts, rng):
-        lengths, returns = original_eval_callback(algo, ts, rng)
-        avg_lengths = lengths.mean()
-        avg_returns = returns.mean()
-
-        def log_to_wandb(step, tau_now, lengths_arr, returns_arr):
-            import numpy as np
-            lengths_arr = np.array(lengths_arr)
-            returns_arr = np.array(returns_arr)
-            step_arr = np.array(step)
-            tau_now = float(np.array(tau_now))  # 兼容 DeviceArray
-
-            try:
-                l_mat = lengths_arr.reshape(num_taus, num_seeds_per_tau)
-                r_mat = returns_arr.reshape(num_taus, num_seeds_per_tau)
-                s_mat = step_arr.reshape(num_taus, num_seeds_per_tau)
-
-                mean_returns = r_mat.mean(axis=1)
-                global_step = int(s_mat[0, 0])
-            except ValueError:
-                mean_returns = returns_arr
-                global_step = int(step_arr.flat[0])
-
-            log_dict = {}
-
-            if np.ndim(mean_returns) == 0:
-                suffix = f"tau_{tau_now:.1f}"
-                log_dict[f"eval/{suffix}"] = float(mean_returns)
-            elif mean_returns.shape[0] == len(eval_taus):
-                for i, tau_val in enumerate(eval_taus):
-                    suffix = f"tau_{tau_val:.1f}"
-                    log_dict[f"eval/{suffix}"] = float(mean_returns[i])
-            else:
-                # 兜底：不符合预期形状就记录一个平均
-                log_dict["eval/avg"] = float(np.mean(mean_returns))
-
-            wandb.log(log_dict, step=global_step)
-
-        jax.experimental.io_callback(
-            log_to_wandb,
-            None,
-            ts.global_step,
-            algo.tau,
-            avg_lengths,
-            avg_returns
-        )
-        return lengths, returns
-
-    algo = algo.replace(eval_callback=wandb_avg_callback)
-    print(algo.config)
-
+    # 2. 定义向量化训练逻辑
     def train_with_tau(tau, keys):
         curr_algo = algo.replace(tau=tau)
         return jax.vmap(algo_cls.train, in_axes=(None, 0))(curr_algo, keys)
+
     final_vmap_train = jax.jit(jax.vmap(train_with_tau, in_axes=(0, 0)))
 
+    # 3. 准备随机数种子
     key = jax.random.PRNGKey(seed_id)
-    subkeys = jax.random.split(key, num_taus * num_seeds_per_tau)
-    subkeys = subkeys.reshape(num_taus, num_seeds_per_tau, -1)
+    subkeys = jax.random.split(key, num_taus * eval_seeds_count)
+    subkeys = subkeys.reshape(num_taus, eval_seeds_count, -1)
 
-    print(f"Starting training for {num_taus} taus with {num_seeds_per_tau} seeds each...")
+    # 4. 执行极速向量化训练
+    print(f"Starting training for {num_taus} taus with {eval_seeds_count} seeds each...")
     ts, (all_lengths, all_returns) = final_vmap_train(eval_taus, subkeys)
     all_returns.block_until_ready()
-
     print("Training finished.")
-    wandb.finish()
+
+    import numpy as np
+    returns_np = np.array(all_returns)  # 形状: (num_taus, num_seeds, num_steps, num_envs)
+
+    for i, tau_val in enumerate(eval_taus):
+        tau_float = float(tau_val)
+
+        # 为每个 tau 值开启一个独立的 Run
+        with wandb.init(
+                project="rejax-kongqg",
+                config={**config, "tau": tau_float, "algo_type": "highway"},
+                name=f"{config['env']}-tau-{tau_float:.1f}",
+                group=config['env'],
+                reinit=True 
+        ):
+            avg_returns_history = returns_np[i].mean(axis=(0, 2))
+
+            print(f"Logging data for tau={tau_float:.1f}...")
+            for step_idx, val in enumerate(avg_returns_history):
+                current_step = step_idx * algo.eval_freq
+                wandb.log({"eval/mean_returns": float(val)}, step=int(current_step))
+
 
 
 if __name__ == "__main__":
