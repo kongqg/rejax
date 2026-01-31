@@ -31,11 +31,12 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
         avg_lengths = lengths.mean()
         avg_returns = returns.mean()
 
-        def log_to_wandb(step, lengths_arr, returns_arr):
+        def log_to_wandb(step, tau_now, lengths_arr, returns_arr):
             import numpy as np
             lengths_arr = np.array(lengths_arr)
             returns_arr = np.array(returns_arr)
             step_arr = np.array(step)
+            tau_now = float(np.array(tau_now))  # 兼容 DeviceArray
 
             try:
                 l_mat = lengths_arr.reshape(num_taus, num_seeds_per_tau)
@@ -51,10 +52,21 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
                 global_step = int(step_arr.flat[0])
 
             log_dict = {}
-            for i, tau_val in enumerate(eval_taus):
-                suffix = f"tau_{tau_val:.1f}"
-                log_dict[f"return/{suffix}"] = float(mean_returns[i])
-                log_dict[f"length/{suffix}"] = float(mean_lengths[i])
+
+            # ✅ 关键：兼容标量 / 向量
+            if np.ndim(mean_returns) == 0:
+                suffix = f"tau_{tau_now:.1f}"
+                log_dict[f"return/{suffix}"] = float(mean_returns)
+                log_dict[f"length/{suffix}"] = float(mean_lengths)
+            elif mean_returns.shape[0] == len(eval_taus):
+                for i, tau_val in enumerate(eval_taus):
+                    suffix = f"tau_{tau_val:.1f}"
+                    log_dict[f"return/{suffix}"] = float(mean_returns[i])
+                    log_dict[f"length/{suffix}"] = float(mean_lengths[i])
+            else:
+                # 兜底：不符合预期形状就记录一个平均
+                log_dict["return/avg"] = float(np.mean(mean_returns))
+                log_dict["length/avg"] = float(np.mean(mean_lengths))
 
             wandb.log(log_dict, step=global_step)
 
@@ -62,10 +74,11 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
             log_to_wandb,
             None,
             ts.global_step,
+            algo.tau,  # ✅ 新增：把当前 tau 传进去
             avg_lengths,
             avg_returns
         )
-        return ()
+        return lengths, returns
 
     algo = algo.replace(eval_callback=wandb_avg_callback)
     print(algo.config)
