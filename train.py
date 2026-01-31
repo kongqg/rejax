@@ -25,21 +25,38 @@ def main(algo_str, config, seed_id, num_seeds, time_fit):
     base_config = config.copy()
     algo = algo_cls.create(**base_config)
     original_eval_callback = algo.eval_callback
+
     def wandb_avg_callback(algo, ts, rng):
         lengths, returns = original_eval_callback(algo, ts, rng)
         avg_lengths = lengths.mean()
         avg_returns = returns.mean()
 
-        def log_to_wandb(step, lengths_matrix, returns_matrix):
-            mean_lengths = lengths_matrix.mean(axis=1)
-            mean_returns = returns_matrix.mean(axis=1)
+        def log_to_wandb(step, lengths_arr, returns_arr):
+            import numpy as np
+            lengths_arr = np.array(lengths_arr)
+            returns_arr = np.array(returns_arr)
+            step_arr = np.array(step)
+
+            try:
+                l_mat = lengths_arr.reshape(num_taus, num_seeds_per_tau)
+                r_mat = returns_arr.reshape(num_taus, num_seeds_per_tau)
+                s_mat = step_arr.reshape(num_taus, num_seeds_per_tau)
+
+                mean_lengths = l_mat.mean(axis=1)
+                mean_returns = r_mat.mean(axis=1)
+                global_step = int(s_mat[0, 0])
+            except ValueError:
+                mean_lengths = lengths_arr
+                mean_returns = returns_arr
+                global_step = int(step_arr.flat[0])
+
             log_dict = {}
             for i, tau_val in enumerate(eval_taus):
                 suffix = f"tau_{tau_val:.1f}"
-                log_dict[f"return/{suffix}"] = mean_returns[i].item()
-                log_dict[f"length/{suffix}"] = mean_lengths[i].item()
+                log_dict[f"return/{suffix}"] = float(mean_returns[i])
+                log_dict[f"length/{suffix}"] = float(mean_lengths[i])
 
-            wandb.log(log_dict, step=int(step[0, 0]))  # 取第一个 seed 的 step 即可
+            wandb.log(log_dict, step=global_step)
 
         jax.experimental.io_callback(
             log_to_wandb,
